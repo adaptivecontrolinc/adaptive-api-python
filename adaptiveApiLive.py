@@ -132,42 +132,49 @@ class AdaptiveApiLive:
         response.raise_for_status()
         return response.json()
 
-    def fetch_machines(self, machines: Optional[List[str]] = None) -> LiveMachines:
+    def _post(self, path: str, params: Optional[Dict[str, Any]] = None, 
+                        body: Optional[str] = None) -> Any:
+        url = self._url(path)
+        response = self.session.post(url, params=params, data=body, timeout=10)
+        response.raise_for_status()
+        return response.json()
+
+    def machines(self, machines: Optional[List[str]] = None) -> LiveMachines:
         """Fetch a list of machines. If 'machines' is provided, fetch only those."""
         return self._fetch("machines", {"m": machines} if machines else None)
 
-    def fetch_tag_values_multiple(self, machines: List[str], tags: List[str]) -> Dict[str, List[Any]]:
+    def tag_values_multiple(self, machines: List[str], tags: List[str]) -> Dict[str, List[Any]]:
         """Fetch values for the same tags from multiple machines."""
         return self._fetch("tagValues", {"m": machines, "t": tags})
 
-    def fetch_tag_values(self, machine: str, tags: List[str]) -> List[Any]:
+    def tag_values(self, machine: str, tags: List[str]) -> List[Any]:
         """Fetch values for a single machine and extract the specific data."""
-        data = self.fetch_tag_values_multiple([machine], tags)
+        data = self.tag_values_multiple([machine], tags)
         return data.get(machine, [])
 
-    def fetch_tags_multiple(self, machines: List[str]) -> Dict[str, List[Tag]]:
+    def tags_multiple(self, machines: List[str]) -> Dict[str, List[Tag]]:
         """Fetch tags for multiple machines."""
         return self._fetch("tags", {"m": machines})
 
-    def fetch_tags(self, machine: str) -> List[Tag]:
+    def tags(self, machine: str) -> List[Tag]:
         """Fetch tags for a single machine."""
-        data = self.fetch_tags_multiple([machine])
+        data = self.tags_multiple([machine])
         return data.get(machine, [])
 
-    def fetch_commands_multiple(self, machines: List[str]) -> Dict[str, List[Command]]:
+    def commands_multiple(self, machines: List[str]) -> Dict[str, List[Command]]:
         """Fetch commands for multiple machines."""
         return self._fetch("commands", {"m": machines})
 
-    def fetch_commands(self, machine: str) -> List[Command]:
+    def commands(self, machine: str) -> List[Command]:
         """Fetch commands for a single machine."""
-        data = self.fetch_commands_multiple([machine])
+        data = self.commands_multiple([machine])
         return data.get(machine, [])
 
-    def fetch_dashboard_entries(self) -> DashboardEntries:
+    def dashboard_entries(self) -> DashboardEntries:
         """Fetch dashboard entries."""
         return self._fetch("dashboardEntries")
 
-    def fetch_dashboard(self, name: str) -> Optional[bytes]:
+    def dashboard(self, name: str) -> Optional[bytes]:
         """Fetch a dashboard by name, returns binary data or None if not found."""
         url = self._url("dashboard")
         response = self.session.get(url, params={"name": name}, timeout=10)
@@ -175,7 +182,7 @@ class AdaptiveApiLive:
             return response.content
         return None
 
-    def fetch_scene(self, name: str) -> Optional[bytes]:
+    def scene(self, name: str) -> Optional[bytes]:
         """Fetch a scene by name, returns binary data or None if not found."""
         url = self._url("scene")
         response = self.session.get(url, params={"name": name}, timeout=10)
@@ -183,16 +190,16 @@ class AdaptiveApiLive:
             return response.content
         return None
 
-    def fetch_screen_buttons_multiple(self, machines: List[str]) -> Dict[str, List[ScreenButton]]:
+    def screen_buttons_multiple(self, machines: List[str]) -> Dict[str, List[ScreenButton]]:
         """Fetch screen buttons for multiple machines."""
         return self._fetch("screenButtons", {"m": machines})
 
-    def fetch_screen_buttons(self, machine: str) -> List[ScreenButton]:
+    def screen_buttons(self, machine: str) -> List[ScreenButton]:
         """Fetch screen buttons for a single machine."""
-        data = self.fetch_screen_buttons_multiple([machine])
+        data = self.screen_buttons_multiple([machine])
         return data.get(machine, [])
 
-    def fetch_program_groups_multiple(self, machines: List[str], group: Optional[str] = None, only_step_counts: bool = False) -> Dict[str, List[ProgramGroup]]:
+    def program_groups_multiple(self, machines: List[str], group: Optional[str] = None, only_step_counts: bool = False) -> Dict[str, List[ProgramGroup]]:
         """Fetch program groups for multiple machines."""
         query = {"m": machines}
         if group is not None:
@@ -201,45 +208,83 @@ class AdaptiveApiLive:
             query["onlyStepCounts"] = "true"
         return self._fetch("programs", query)
 
-    def fetch_program_groups(self, machine: str, group: Optional[str] = None, only_step_counts: bool = False) -> List[ProgramGroup]:
+    def program_groups(self, machine: str, group: Optional[str] = None, only_step_counts: bool = False) -> List[ProgramGroup]:
         """Fetch program groups for a single machine."""
-        data = self.fetch_program_groups_multiple([machine], group, only_step_counts)
+        data = self.program_groups_multiple([machine], group, only_step_counts)
         return data.get(machine, [])
 
-    def fetch_jobs_multiple(self, machines: List[str]) -> Dict[str, List[ScheduledJob]]:
+    def jobs_multiple(self, machines: List[str]) -> Dict[str, List[ScheduledJob]]:
         """Fetch scheduled jobs for multiple machines."""
         return self._fetch("jobs", {"m": machines})
 
-    def fetch_jobs(self, machine: str) -> List[ScheduledJob]:
+    def jobs(self, machine: str) -> List[ScheduledJob]:
         """Fetch scheduled jobs for a single machine."""
-        data = self.fetch_jobs_multiple([machine])
+        data = self.jobs_multiple([machine])
         return data.get(machine, [])
 
-    def fetch_messages_multiple(self, machines: List[str]) -> Dict[str, List[str]]:
+    def messages_multiple(self, machines: List[str]) -> Dict[str, List[str]]:
         """Fetch messages for multiple machines."""
         return self._fetch("messages", {"m": machines})
 
-    def fetch_messages(self, machine: str) -> List[str]:
+    def messages(self, machine: str) -> List[str]:
         """Fetch messages for a single machine."""
-        data = self.fetch_messages_multiple([machine])
+        data = self.messages_multiple([machine])
         return data.get(machine, [])
 
-    def fetch_profiles(self, machines: List[str]) -> Dict[str, Optional[RunningProfile]]:
+    def profiles(self, machines: List[str]) -> Dict[str, Optional[RunningProfile]]:
         """Fetch running profiles for multiple machines."""
         return self._fetch("profiles", {"m": machines})
 
-    def fetch_screen_multiple(self, machines: List[str], page: Optional[int] = None) -> Dict[str, List[str]]:
+    def screen_multiple(self, machines: List[str], page: Optional[int] = None) -> Dict[str, List[str]]:
         """Fetch screen data for multiple machines."""
         query = {"m": machines}
         if page is not None:
             query["page"] = page
         return self._fetch("screen", query)
 
-    def fetch_screen(self, machine: str, page: Optional[int] = None) -> List[str]:
+    def screen(self, machine: str, page: Optional[int] = None) -> List[str]:
         """Fetch screen data for a single machine."""
-        data = self.fetch_screen_multiple([machine], page)
+        data = self.screen_multiple([machine], page)
         return data.get(machine, [])
 
     def url_command_icon(self, machine: str, command: str) -> str:
         """Generate URL for command icon."""
         return f"{self._url('commandIcon')}?m={machine}&c={command}"
+    
+
+    # Machine control methods (require change permissions)
+    def run(self, machine: str) -> Any:
+        """Start/run a machine."""
+        return self._post('run', {'m': machine})
+
+    def backward(self, machine: str) -> Any:
+        """Move machine backward."""
+        return self._post('backward', {'m': machine})
+
+    def forward(self, machine: str) -> Any:
+        """Move machine forward."""
+        return self._post('forward', {'m': machine})
+
+    def pause(self, machine: str) -> Any:
+        """Pause a machine."""
+        return self._post('pause', {'m': machine})
+
+    def stop(self, machine: str) -> Any:
+        """Stop a machine."""
+        return self._post('stop', {'m': machine})
+
+    def yes(self, machine: str) -> Any:
+        """Send 'yes' response to machine."""
+        return self._post('yes', {'m': machine})
+
+    def no(self, machine: str) -> Any:
+        """Send 'no' response to machine."""
+        return self._post('no', {'m': machine})
+
+    def set_step(self, machine: str, step: int) -> Any:
+        """Set the current step for a machine. Can be fetched in Parent.CurrentStep."""
+        return self._post('setStep', {'m': machine, 'step': step})
+
+    def set_mode(self, machine: str, mode: Mode) -> Any:
+        """Set the mode for a machine. Can be fetched in Parent.Mode."""
+        return self._post('setMode', {'m': machine, 'mode': mode.value})

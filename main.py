@@ -1,5 +1,5 @@
-# --- Example Execution ---
 from datetime import datetime
+from adaptiveApiLive import AdaptiveApiLive
 from adaptiveApiPe import AdaptiveApiPe
 
 
@@ -7,12 +7,11 @@ if __name__ == "__main__":
     API_SERVER = "http://localhost"
     API_TOKEN = "123"
 
-    # client = AdaptiveApiLive(API_SERVER, API_TOKEN)
-    # print(client.fetch_dashboard_entries())
+    client = AdaptiveApiLive(API_SERVER, API_TOKEN)
+    print(client.dashboard_entries())
 
-    # for m in client.fetch_machines():
-    #     print(f"machine: {m['machine']}, type: {m.get('type', 'N/A')}")
-
+    for m in client.machines():
+        print(f"machine: {m['machine']}, type: {m.get('type', 'N/A')}")
 
     client = AdaptiveApiPe(API_SERVER, API_TOKEN)
     

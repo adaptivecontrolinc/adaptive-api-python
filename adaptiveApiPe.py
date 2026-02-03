@@ -223,9 +223,8 @@ class AdaptiveApiPe:
         response.raise_for_status()
         return response.json()
     
-    def _post_json(self, path: str, params: Optional[Dict[str, Any]] = None, 
+    def _post(self, path: str, params: Optional[Dict[str, Any]] = None, 
                         body: Optional[str] = None) -> Any:
-        """Post JSON data to API endpoint."""
         url = self._url(path)
         response = self.session.post(url, params=params, data=body, timeout=10)
         response.raise_for_status()
@@ -406,24 +405,24 @@ class AdaptiveApiPe:
     
     def insert_jobs(self, inserts: List[Dict[str, Any]]) -> Any:
         """Insert jobs."""
-        return self._post_json('insertJobs', body=json.dumps(inserts))
+        return self._post('insertJobs', body=json.dumps(inserts))
     
     def update_jobs(self, updates: List[Dict[str, Any]]) -> Any:
         """Update jobs."""
-        return self._post_json('updateJobs', body=json.dumps(updates))
+        return self._post('updateJobs', body=json.dumps(updates))
     
     def delete_jobs(self, ids: List[Any]) -> Any:
         """Delete jobs."""
-        return self._post_json('deleteJobs', body=json.dumps(ids))
+        return self._post('deleteJobs', body=json.dumps(ids))
     
     def insert_programs(self, inserts: List[Dict[str, Any]]) -> Any:
         """Insert programs."""
-        return self._post_json('insertPrograms', body=json.dumps(inserts))
+        return self._post('insertPrograms', body=json.dumps(inserts))
     
     def update_programs(self, updates: List[Dict[str, Any]]) -> Any:
         """Update programs."""
-        return self._post_json('updatePrograms', body=json.dumps(updates))
+        return self._post('updatePrograms', body=json.dumps(updates))
     
     def delete_programs(self, ids: List[Dict[str, str]]) -> Any:
         """Delete programs."""
-        return self._post_json('deletePrograms', body=json.dumps(ids))
+        return self._post('deletePrograms', body=json.dumps(ids))
