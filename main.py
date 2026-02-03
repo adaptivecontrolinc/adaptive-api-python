@@ -2,7 +2,6 @@ from datetime import datetime
 from apiLive import ApiLive 
 from apiPe import ApiPe
 
-
 if __name__ == "__main__":
     API_SERVER = "http://localhost"
     API_TOKEN = "123"
@@ -11,7 +10,7 @@ if __name__ == "__main__":
     print(client.dashboard_entries())
 
     for m in client.machines():
-        print(f"machine: {m['machine']}, type: {m.get('type', 'N/A')}")
+        print(f"machine: {m.machine}, type: {m.type or 'N/A'}")
 
     client = ApiPe(API_SERVER, API_TOKEN)
     

@@ -2,6 +2,7 @@ import requests
 from typing import List, Dict, Any, Optional, TypedDict
 from enum import Enum
 from datetime import datetime
+from dataclasses import dataclass, field
 
 # Enums
 class Running(Enum):
@@ -15,96 +16,119 @@ class Mode(Enum):
     TEST = 2
     OVERRIDE = 3
 
-# Type definitions based on apiLiveData.ts
-class LiveMachine(TypedDict):
+# Data models using dataclasses
+@dataclass
+class LiveMachine:
     machine: str
-    type: Optional[str]
+    type: Optional[str] = None
 
-class DashboardEntry(TypedDict):
+@dataclass
+class DashboardEntry:
     name: str
     lastModified: int
     sizeInBytes: int
 
-class ScreenButton(TypedDict):
+@dataclass
+class ScreenButton:
     text: str
-    svg: Optional[Dict[str, str]]  # {viewBox: str, d: str}
+    svg: Optional[Dict[str, str]] = None  # {viewBox: str, d: str}
 
-class TimelineItem(TypedDict):
+@dataclass
+class TimelineItem:
     start: int
     end: int
     resource: str
     id: Any
 
-class Job(TypedDict):
+@dataclass
+class Job:
     id: Any
-    running: Optional[Dict[str, int]]  # {currentStep: int, changingStep?: int}
-    blocked: Optional[bool]
-    committed: Optional[bool]
-    foregroundColor: Optional[str]
-    notes: Optional[str]
-    programs: Optional[List[Any]]
-    parameters: Optional[List[Dict[str, str]]]  # [{command: str}]
-    profile: Optional[Dict[str, Any]]  # ValueProfile
+    running: Optional[Dict[str, int]] = None  # {currentStep: int, changingStep?: int}
+    blocked: Optional[bool] = None
+    committed: Optional[bool] = None
+    foregroundColor: Optional[str] = None
+    notes: Optional[str] = None
+    programs: Optional[List[Any]] = None
+    parameters: Optional[List[Dict[str, str]]] = None  # [{command: str}]
+    profile: Optional[Dict[str, Any]] = None  # ValueProfile
 
-class ScheduledJob(Job):
+@dataclass
+class ScheduledJob:
+    id: Any
     start: int
     end: int
-    standard: Optional[int]
+    running: Optional[Dict[str, int]] = None
+    blocked: Optional[bool] = None
+    committed: Optional[bool] = None
+    foregroundColor: Optional[str] = None
+    notes: Optional[str] = None
+    programs: Optional[List[Any]] = None
+    parameters: Optional[List[Dict[str, str]]] = None
+    profile: Optional[Dict[str, Any]] = None
+    standard: Optional[int] = None
 
-class ProgramNumberAndName(TypedDict):
+@dataclass
+class ProgramNumberAndName:
     number: str
     name: str
 
-class Program(TypedDict):
+@dataclass
+class Program:
     number: str
-    name: Optional[str]
-    steps: Any  # Step[] | number
-    notes: Optional[str]
-    code: Optional[str]
-    modifiedTime: Optional[datetime]
-    modifiedBy: Optional[str]
+    name: Optional[str] = None
+    steps: Any = None  # Step[] | number
+    notes: Optional[str] = None
+    code: Optional[str] = None
+    modifiedTime: Optional[datetime] = None
+    modifiedBy: Optional[str] = None
 
-class ProgramGroup(TypedDict):
+@dataclass
+class ProgramGroup:
     group: str
-    programs: List[Program]
+    programs: List[Program] = field(default_factory=list)
 
-class SampleStep(TypedDict):
+@dataclass
+class SampleStep:
     index: int
     # ... other Step properties
 
-class RunningProfile(TypedDict):
+@dataclass
+class RunningProfile:
     currentStep: int
     changingStep: int
-    sampleSteps: List[SampleStep]
+    sampleSteps: List[SampleStep] = field(default_factory=list)
     # ... other ValueProfile properties
 
-class ShiftPattern(TypedDict):
-    fromDate: Optional[int]
-    repeatPeriodInDays: Optional[int]
-    startTime: int
-    shifts: List['Shift']
-
-class Shift(TypedDict):
+@dataclass
+class Shift:
     name: str
     duration: int
 
-class GroupNumberAndName(TypedDict):
+@dataclass
+class ShiftPattern:
+    fromDate: Optional[int]
+    repeatPeriodInDays: Optional[int]
+    startTime: int
+    shifts: List[Shift] = field(default_factory=list)
+
+@dataclass
+class GroupNumberAndName:
     group: Optional[str]
     number: str
     name: str
 
-class Tag(TypedDict):
-    # Based on common tag properties - you may need to adjust
+@dataclass
+class Tag:
     name: str
-    type: Optional[str]
-    value: Optional[Any]
-    description: Optional[str]
+    type: Optional[str] = None
+    value: Optional[Any] = None
+    description: Optional[str] = None
 
-class Command(TypedDict):
-    # Based on common command properties - you may need to adjust
+@dataclass
+class Command:
     name: str
-    description: Optional[str]
-    parameters: Optional[List[str]]
+    description: Optional[str] = None
+    parameters: Optional[List[str]] = None
 
 # Type aliases
 LiveMachines = List[LiveMachine]
@@ -132,16 +156,17 @@ class ApiLive:
         response.raise_for_status()
         return response.json()
 
-    def _post(self, path: str, params: Optional[Dict[str, Any]] = None, 
-                        body: Optional[str] = None) -> Any:
+    def _post(self, path: str, data: Optional[dict] = None) -> Any:
+        """POST method for sending commands that require change permissions."""
         url = self._url(path)
-        response = self.session.post(url, params=params, data=body, timeout=10)
+        response = self.session.post(url, json=data, timeout=10)
         response.raise_for_status()
         return response.json()
 
     def machines(self, machines: Optional[List[str]] = None) -> LiveMachines:
         """Fetch a list of machines. If 'machines' is provided, fetch only those."""
-        return self._fetch("machines", {"m": machines} if machines else None)
+        data = self._fetch("machines", {"m": machines} if machines else None)
+        return [LiveMachine(**item) for item in data]
 
     def tag_values_multiple(self, machines: List[str], tags: List[str]) -> Dict[str, List[Any]]:
         """Fetch values for the same tags from multiple machines."""
@@ -154,7 +179,8 @@ class ApiLive:
 
     def tags_multiple(self, machines: List[str]) -> Dict[str, List[Tag]]:
         """Fetch tags for multiple machines."""
-        return self._fetch("tags", {"m": machines})
+        data = self._fetch("tags", {"m": machines})
+        return {machine: [Tag(**tag) for tag in tags] for machine, tags in data.items()}
 
     def tags(self, machine: str) -> List[Tag]:
         """Fetch tags for a single machine."""
@@ -163,7 +189,8 @@ class ApiLive:
 
     def commands_multiple(self, machines: List[str]) -> Dict[str, List[Command]]:
         """Fetch commands for multiple machines."""
-        return self._fetch("commands", {"m": machines})
+        data = self._fetch("commands", {"m": machines})
+        return {machine: [Command(**cmd) for cmd in commands] for machine, commands in data.items()}
 
     def commands(self, machine: str) -> List[Command]:
         """Fetch commands for a single machine."""
@@ -172,7 +199,8 @@ class ApiLive:
 
     def dashboard_entries(self) -> DashboardEntries:
         """Fetch dashboard entries."""
-        return self._fetch("dashboardEntries")
+        data = self._fetch("dashboardEntries")
+        return [DashboardEntry(**item) for item in data]
 
     def dashboard(self, name: str) -> Optional[bytes]:
         """Fetch a dashboard by name, returns binary data or None if not found."""
@@ -192,7 +220,8 @@ class ApiLive:
 
     def screen_buttons_multiple(self, machines: List[str]) -> Dict[str, List[ScreenButton]]:
         """Fetch screen buttons for multiple machines."""
-        return self._fetch("screenButtons", {"m": machines})
+        data = self._fetch("screenButtons", {"m": machines})
+        return {machine: [ScreenButton(**btn) for btn in buttons] for machine, buttons in data.items()}
 
     def screen_buttons(self, machine: str) -> List[ScreenButton]:
         """Fetch screen buttons for a single machine."""
@@ -206,7 +235,15 @@ class ApiLive:
             query["group"] = group
         if only_step_counts:
             query["onlyStepCounts"] = "true"
-        return self._fetch("programs", query)
+        data = self._fetch("programs", query)
+        
+        result = {}
+        for machine, groups in data.items():
+            result[machine] = []
+            for group_data in groups:
+                programs = [Program(**prog) for prog in group_data.get('programs', [])]
+                result[machine].append(ProgramGroup(group=group_data['group'], programs=programs))
+        return result
 
     def program_groups(self, machine: str, group: Optional[str] = None, only_step_counts: bool = False) -> List[ProgramGroup]:
         """Fetch program groups for a single machine."""
@@ -215,7 +252,8 @@ class ApiLive:
 
     def jobs_multiple(self, machines: List[str]) -> Dict[str, List[ScheduledJob]]:
         """Fetch scheduled jobs for multiple machines."""
-        return self._fetch("jobs", {"m": machines})
+        data = self._fetch("jobs", {"m": machines})
+        return {machine: [ScheduledJob(**job) for job in jobs] for machine, jobs in data.items()}
 
     def jobs(self, machine: str) -> List[ScheduledJob]:
         """Fetch scheduled jobs for a single machine."""
@@ -233,7 +271,19 @@ class ApiLive:
 
     def profiles(self, machines: List[str]) -> Dict[str, Optional[RunningProfile]]:
         """Fetch running profiles for multiple machines."""
-        return self._fetch("profiles", {"m": machines})
+        data = self._fetch("profiles", {"m": machines})
+        result = {}
+        for machine, profile_data in data.items():
+            if profile_data:
+                sample_steps = [SampleStep(**step) for step in profile_data.get('sampleSteps', [])]
+                result[machine] = RunningProfile(
+                    currentStep=profile_data['currentStep'],
+                    changingStep=profile_data['changingStep'],
+                    sampleSteps=sample_steps
+                )
+            else:
+                result[machine] = None
+        return result
 
     def screen_multiple(self, machines: List[str], page: Optional[int] = None) -> Dict[str, List[str]]:
         """Fetch screen data for multiple machines."""
@@ -250,7 +300,6 @@ class ApiLive:
     def url_command_icon(self, machine: str, command: str) -> str:
         """Generate URL for command icon."""
         return f"{self._url('commandIcon')}?m={machine}&c={command}"
-    
 
     # Machine control methods (require change permissions)
     def run(self, machine: str) -> Any:
