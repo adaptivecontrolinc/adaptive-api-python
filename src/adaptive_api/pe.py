@@ -2,12 +2,14 @@ from typing import List, Dict, Any, Optional, Union, Callable, Tuple
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 import json
+import csv
+from io import StringIO
 from enum import Enum
 from dacite import from_dict, Config
 
 import requests
 
-# Utility functions (from toKeyString.ts)
+from .base import BaseApi
 
 def to_key_string(key: List[Any]) -> str:
     """Convert a key array to a string representation."""
@@ -230,39 +232,14 @@ class HistoryTag(Tag):
     values: List[Any] = field(default_factory=list)
 
 
-class ApiPe:
+class ApiPe(BaseApi):
+    def __init__(self, server: str, token: str):
+        super().__init__(server, token, "pe")
     """Client for Adaptive PE API."""
     _config = Config(type_hooks={
         datetime: lambda v: datetime.fromisoformat(v.replace('Z', '+00:00')) if isinstance(v, str) else v
     })
     
-    def __init__(self, server: str, token: str):
-        self.server = server 
-        self.token = token
-        
-        # Using a Session for connection pooling and shared headers
-        self.session = requests.Session()
-        self.session.headers.update({
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json",
-            "User-Agent": "AdaptiveApiPe/1.0"
-        })
-
-    def _url(self, path: str) -> str:
-        return f"{self.server}/api/v1/pe/{path.lstrip('/')}"
-
-    def _fetch(self, path: str, query: Optional[dict] = None) -> Any:
-        url = self._url(path)
-        response = self.session.get(url, params=query, timeout=10)
-        response.raise_for_status()
-        return response.json()
-    
-    def _post(self, path: str, params: Optional[Dict[str, Any]] = None, 
-                        body: Optional[str] = None) -> Any:
-        url = self._url(path)
-        response = self.session.post(url, params=params, data=body, timeout=10)
-        response.raise_for_status()
-        return response.json()
     
     def _fix_date(self, value: Any) -> Any:
         """Convert date strings to timestamps."""
@@ -293,7 +270,7 @@ class ApiPe:
             params['onlyStepCounts'] = True
         
         data = self._fetch('programGroups', params)
-        return [ProgramGroup(**item) for item in data]
+        return [from_dict(ProgramGroup, item, self._config) for item in data]
     
     def history(self, job_id: Any, tags_filter: Optional[str] = None, tags: Optional[List[str]] = None) -> Optional[AdaptiveHistory]:
         """Fetch history for given ID."""
@@ -303,14 +280,169 @@ class ApiPe:
         if tags:
             params['tags'] = ','.join(tags)
         
-        json = self._fetch('history', params)
-        if not json:
+        response_json = self._fetch('history', params)
+        if not response_json:
             return None
-        history =from_dict(AdaptiveHistory, json, self._config)        
-        fix_history(history)
+        history = from_dict(AdaptiveHistory, response_json, self._config)        
+        _fix_history(history)
         return history
 
-def fix_history(history: AdaptiveHistory) -> None:
+
+    def reschedule_groups(self) -> List[RescheduleGroup]:
+        """Fetch reschedule groups."""
+        data = self._fetch('rescheduleGroups')
+        return [from_dict(RescheduleGroup, item, self._config) for item in data]
+    
+    def jobs_and_stoppages(self, after: Optional[int] = None, before: Optional[int] = None,
+                           starts_in_range: bool = False, no_jobs: bool = False,
+                           no_stoppages: bool = False, job_props: Optional[List[str]] = None) -> List[Union[Job, Stoppage]]:
+        """Fetch jobs and stoppages."""
+        params = {}
+        if after is not None:
+            params['after'] = datetime.fromtimestamp(after / 1000).isoformat()
+        if before is not None:
+            params['before'] = datetime.fromtimestamp(before / 1000).isoformat()
+        if starts_in_range:
+            params['startsInRange'] = True
+        if no_jobs:
+            params['noJobs'] = True
+        if no_stoppages:
+            params['noStoppages'] = True
+        if job_props:
+            params['jobProps'] = job_props
+        
+        data = self._fetch('jobs', params)
+        
+        # Convert dates to numbers
+        for item in data:
+            item['start'] = self._fix_date(item['start'])
+            item['end'] = self._fix_date(item['end'])
+        
+        # Convert to appropriate objects
+        result = []
+        for item in data:
+            if 'stoppage' in item:
+                result.append(from_dict(Stoppage, item, self._config))
+            else:
+                result.append(from_dict(Job, item, self._config))
+        
+        return result
+    
+    def resource_events(self, alarms: bool = False, delays: bool = False,
+                        stoppages: bool = False, after: Optional[int] = None,
+                        before: Optional[int] = None) -> List[ResourceEvent]:
+        """Fetch resource events."""
+        params = {}
+        if alarms:
+            params['alarms'] = True
+        if delays:
+            params['delays'] = True
+        if stoppages:
+            params['stoppages'] = True
+        if after is not None:
+            params['after'] = datetime.fromtimestamp(after / 1000).isoformat()
+        if before is not None:
+            params['before'] = datetime.fromtimestamp(before / 1000).isoformat()
+        
+        data = self._fetch('resourceEvents', params)
+        
+        # Convert dates to numbers
+        for item in data:
+            item['start'] = self._fix_date(item['start'])
+            item['end'] = self._fix_date(item['end'])
+        
+        return [from_dict(ResourceEvent, item, self._config) for item in data]
+    
+    def group_resource_events(self, events: Optional[List[ResourceEvent]], 
+                             get_name: Callable[[ResourceEvent], str]) -> Optional[Dict[str, Dict[str, int]]]:
+        """Group and sum resource events by machine."""
+        if not events:
+            return None
+        
+        result = {}
+        for event in events:
+            name = get_name(event)
+            if name not in result:
+                result[name] = {}
+            
+            duration = event.end - event.start
+            if event.resource in result[name]:
+                result[name][event.resource] += duration
+            else:
+                result[name][event.resource] = duration
+        
+        return result
+    
+    def inbox_jobs(self) -> List[InBoxGroupAndJobs]:
+        """Fetch inbox jobs."""
+        data = self._fetch('inBoxJobs')
+        
+        # Repopulate resource in each job
+        result = []
+        for group_data in data:
+            group = from_dict(InBoxGroupAndJobs, group_data, self._config)
+            if group.jobs:
+                for job in group.jobs:
+                    job.resource = group.group
+            result.append(group)
+        
+        return result
+    
+    def search(self, text: str, limit: Optional[int] = None) -> List[SearchResult]:
+        """Search for jobs/items."""
+        params = {'text': text}
+        if limit is not None:
+            params['limit'] = limit
+        
+        data = self._fetch('search', params)
+        
+        # Convert dates to numbers
+        for item in data:
+            if 'start' in item:
+                item['start'] = self._fix_date(item['start'])
+        
+        # Convert to appropriate objects
+        result = []
+        for item in data:
+            if 'start' in item:
+                result.append(from_dict(Job, item, self._config))
+            else:
+                result.append(from_dict(InBoxJob, item, self._config))
+        
+        return result
+    
+    def daily_job_count(self) -> List[DailyJobCount]:
+        """Fetch daily job count."""
+        data = self._fetch('dailyJobCount')
+        return [from_dict(DailyJobCount, item, self._config) for item in data]
+    
+    # Change operations (from apiPeChange.ts)
+    
+    def insert_jobs(self, inserts: List[Dict[str, Any]]) -> Any:
+        """Insert jobs."""
+        return self._post('insertJobs', body=json.dumps(inserts))
+    
+    def update_jobs(self, updates: List[Dict[str, Any]]) -> Any:
+        """Update jobs."""
+        return self._post('updateJobs', body=json.dumps(updates))
+    
+    def delete_jobs(self, ids: List[Any]) -> Any:
+        """Delete jobs."""
+        return self._post('deleteJobs', body=json.dumps(ids))
+    
+    def insert_programs(self, inserts: List[Dict[str, Any]]) -> Any:
+        """Insert programs."""
+        return self._post('insertPrograms', body=json.dumps(inserts))
+    
+    def update_programs(self, updates: List[Dict[str, Any]]) -> Any:
+        """Update programs."""
+        return self._post('updatePrograms', body=json.dumps(updates))
+    
+    def delete_programs(self, ids: List[Dict[str, str]]) -> Any:
+        """Delete programs."""
+        return self._post('deletePrograms', body=json.dumps(ids))
+    
+def _fix_history(history: AdaptiveHistory) -> None:
     """Fix the history data structure."""
     # The JSON on the wire is in a smaller form that we fix here
     prev = 0
@@ -348,167 +480,16 @@ def fix_history(history: AdaptiveHistory) -> None:
                     expanded_values.append(last_value)
                 tag.values = expanded_values
 
-    def reschedule_groups(history) -> List[RescheduleGroup]:
-        """Fetch reschedule groups."""
-        data = history._fetch('rescheduleGroups')
-        return [RescheduleGroup(**item) for item in data]
-    
-    def jobs_and_stoppages(history, after: Optional[int] = None, before: Optional[int] = None,
-                                     starts_in_range: bool = False, no_jobs: bool = False,
-                                     no_stoppages: bool = False, job_props: Optional[List[str]] = None) -> List[Union[Job, Stoppage]]:
-        """Fetch jobs and stoppages."""
-        params = {}
-        if after is not None:
-            params['after'] = datetime.fromtimestamp(after / 1000).isoformat()
-        if before is not None:
-            params['before'] = datetime.fromtimestamp(before / 1000).isoformat()
-        if starts_in_range:
-            params['startsInRange'] = True
-        if no_jobs:
-            params['noJobs'] = True
-        if no_stoppages:
-            params['noStoppages'] = True
-        if job_props:
-            params['jobProps'] = job_props
-        
-        data = history._fetch('jobs', params)
-        
-        # Convert dates to numbers
-        for item in data:
-            item['start'] = history._fix_date(item['start'])
-            item['end'] = history._fix_date(item['end'])
-        
-        # Convert to appropriate objects
-        result = []
-        for item in data:
-            if 'stoppage' in item:
-                result.append(Stoppage(**item))
-            else:
-                result.append(Job(**item))
-        
-        return result
-    
-    def resource_events(history, alarms: bool = False, delays: bool = False,
-                                   stoppages: bool = False, after: Optional[int] = None,
-                                   before: Optional[int] = None) -> List[ResourceEvent]:
-        """Fetch resource events."""
-        params = {}
-        if alarms:
-            params['alarms'] = True
-        if delays:
-            params['delays'] = True
-        if stoppages:
-            params['stoppages'] = True
-        if after is not None:
-            params['after'] = datetime.fromtimestamp(after / 1000).isoformat()
-        if before is not None:
-            params['before'] = datetime.fromtimestamp(before / 1000).isoformat()
-        
-        data = history._fetch('resourceEvents', params)
-        
-        # Convert dates to numbers
-        for item in data:
-            item['start'] = history._fix_date(item['start'])
-            item['end'] = history._fix_date(item['end'])
-        
-        return [ResourceEvent(**item) for item in data]
-    
-    def group_resource_events(history, events: Optional[List[ResourceEvent]], 
-                            get_name: Callable[[ResourceEvent], str]) -> Optional[Dict[str, Dict[str, int]]]:
-        """Group and sum resource events by machine."""
-        if not events:
-            return None
-        
-        result = {}
-        for event in events:
-            name = get_name(event)
-            if name not in result:
-                result[name] = {}
-            
-            duration = event.end - event.start
-            if event.resource in result[name]:
-                result[name][event.resource] += duration
-            else:
-                result[name][event.resource] = duration
-        
-        return result
-    
-    def inbox_jobs(history) -> List[InBoxGroupAndJobs]:
-        """Fetch inbox jobs."""
-        data = history._fetch('inBoxJobs')
-        
-        # Repopulate resource in each job
-        result = []
-        for group_data in data:
-            group = InBoxGroupAndJobs(**group_data)
-            if group.jobs:
-                for job in group.jobs:
-                    job.resource = group.group
-            result.append(group)
-        
-        return result
-    
-    def search(history, text: str, limit: Optional[int] = None) -> List[SearchResult]:
-        """Search for jobs/items."""
-        params = {'text': text}
-        if limit is not None:
-            params['limit'] = limit
-        
-        data = history._fetch('search', params)
-        
-        # Convert dates to numbers
-        for item in data:
-            if 'start' in item:
-                item['start'] = history._fix_date(item['start'])
-        
-        # Convert to appropriate objects
-        result = []
-        for item in data:
-            if 'start' in item:
-                result.append(Job(**item))
-            else:
-                result.append(InBoxJob(**item))
-        
-        return result
-    
-    def daily_job_count(history) -> List[DailyJobCount]:
-        """Fetch daily job count."""
-        data = history._fetch('dailyJobCount')
-        return [DailyJobCount(**item) for item in data]
-    
-    # Change operations (from apiPeChange.ts)
-    
-    def insert_jobs(history, inserts: List[Dict[str, Any]]) -> Any:
-        """Insert jobs."""
-        return history._post('insertJobs', body=json.dumps(inserts))
-    
-    def update_jobs(history, updates: List[Dict[str, Any]]) -> Any:
-        """Update jobs."""
-        return history._post('updateJobs', body=json.dumps(updates))
-    
-    def delete_jobs(history, ids: List[Any]) -> Any:
-        """Delete jobs."""
-        return history._post('deleteJobs', body=json.dumps(ids))
-    
-    def insert_programs(history, inserts: List[Dict[str, Any]]) -> Any:
-        """Insert programs."""
-        return history._post('insertPrograms', body=json.dumps(inserts))
-    
-    def update_programs(history, updates: List[Dict[str, Any]]) -> Any:
-        """Update programs."""
-        return history._post('updatePrograms', body=json.dumps(updates))
-    
-    def delete_programs(history, ids: List[Dict[str, str]]) -> Any:
-        """Delete programs."""
-        return history._post('deletePrograms', body=json.dumps(ids))
-    
 def history_to_csv(history: AdaptiveHistory) -> str:
-    lines = []
-    lines.append(','.join(['ElapsedTime', 'Time'] + [tag.name for tag in history.tags]))
+    output = StringIO()
+    writer = csv.writer(output, lineterminator='\n')
+    
+    # Write header
+    header = ['ElapsedTime', 'Time'] + [tag.name for tag in history.tags]
+    writer.writerow(header)
 
     num_tags = len(history.tags)
     last_values = [None] * num_tags
-
     tag_pointers = [0] * num_tags 
     
     # Iterate through every global elapsed time step
@@ -516,7 +497,7 @@ def history_to_csv(history: AdaptiveHistory) -> str:
         row = [
             str(history.elapsedTimes[i]),
             (history.start + timedelta(milliseconds=history.elapsedTimes[i])).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + 'Z'
-            ]   
+        ]   
         
         for t_idx, tag in enumerate(history.tags):
             ptr = tag_pointers[t_idx]
@@ -531,12 +512,9 @@ def history_to_csv(history: AdaptiveHistory) -> str:
                 # Use the carried-over value (Forward Fill)
                 current_value = last_values[t_idx]
             
-            s = str(current_value) if current_value is not None else ''
-            # If a comma in there, wrap in quotes
-            if ',' in s:
-                s = f'"{s}"'
-            row.append(s)
+            row.append(str(current_value) if current_value is not None else '')
             
-        lines.append(','.join(row))
-    return '\n'.join(lines)
+        writer.writerow(row)
+    
+    return output.getvalue()
     

@@ -3,6 +3,9 @@ from typing import List, Dict, Any, Optional, TypedDict
 from enum import Enum
 from datetime import datetime
 from dataclasses import dataclass, field
+from dacite import from_dict
+
+from .base import BaseApi
 
 # Enums
 class Running(Enum):
@@ -38,11 +41,11 @@ class TimelineItem:
     start: int
     end: int
     resource: str
-    id: Any
+    id: str
 
 @dataclass
 class Job:
-    id: Any
+    id: str
     running: Optional[Dict[str, int]] = None  # {currentStep: int, changingStep?: int}
     blocked: Optional[bool] = None
     committed: Optional[bool] = None
@@ -54,7 +57,7 @@ class Job:
 
 @dataclass
 class ScheduledJob:
-    id: Any
+    id: str
     start: int
     end: int
     running: Optional[Dict[str, int]] = None
@@ -134,39 +137,14 @@ class Command:
 LiveMachines = List[LiveMachine]
 DashboardEntries = List[DashboardEntry]
 
-class ApiLive:
+class ApiLive(BaseApi):
     def __init__(self, server: str, token: str):
-        self.server = server 
-        self.token = token
-        
-        # Using a Session for connection pooling and shared headers
-        self.session = requests.Session()
-        self.session.headers.update({
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json",
-            "User-Agent": "AdaptiveApiLive/1.0"
-        })
-
-    def _url(self, path: str) -> str:
-        return f"{self.server}/api/v1/live/{path.lstrip('/')}"
-
-    def _fetch(self, path: str, query: Optional[dict] = None) -> Any:
-        url = self._url(path)
-        response = self.session.get(url, params=query, timeout=10)
-        response.raise_for_status()
-        return response.json()
-
-    def _post(self, path: str, data: Optional[dict] = None) -> Any:
-        """POST method for sending commands that require change permissions."""
-        url = self._url(path)
-        response = self.session.post(url, json=data, timeout=10)
-        response.raise_for_status()
-        return response.json()
+        super().__init__(server, token, "live")
 
     def machines(self, machines: Optional[List[str]] = None) -> LiveMachines:
         """Fetch a list of machines. If 'machines' is provided, fetch only those."""
         data = self._fetch("machines", {"m": machines} if machines else None)
-        return [LiveMachine(**item) for item in data]
+        return [from_dict(LiveMachine, item) for item in data]
 
     def tag_values_multiple(self, machines: List[str], tags: List[str]) -> Dict[str, List[Any]]:
         """Fetch values for the same tags from multiple machines."""
@@ -180,7 +158,7 @@ class ApiLive:
     def tags_multiple(self, machines: List[str]) -> Dict[str, List[Tag]]:
         """Fetch tags for multiple machines."""
         data = self._fetch("tags", {"m": machines})
-        return {machine: [Tag(**tag) for tag in tags] for machine, tags in data.items()}
+        return {machine: [from_dict(Tag, tag) for tag in tags] for machine, tags in data.items()}
 
     def tags(self, machine: str) -> List[Tag]:
         """Fetch tags for a single machine."""
@@ -190,7 +168,7 @@ class ApiLive:
     def commands_multiple(self, machines: List[str]) -> Dict[str, List[Command]]:
         """Fetch commands for multiple machines."""
         data = self._fetch("commands", {"m": machines})
-        return {machine: [Command(**cmd) for cmd in commands] for machine, commands in data.items()}
+        return {machine: [from_dict(Command, cmd) for cmd in commands] for machine, commands in data.items()}
 
     def commands(self, machine: str) -> List[Command]:
         """Fetch commands for a single machine."""
@@ -200,7 +178,7 @@ class ApiLive:
     def dashboard_entries(self) -> DashboardEntries:
         """Fetch dashboard entries."""
         data = self._fetch("dashboardEntries")
-        return [DashboardEntry(**item) for item in data]
+        return [from_dict(DashboardEntry, item) for item in data]
 
     def dashboard(self, name: str) -> Optional[bytes]:
         """Fetch a dashboard by name, returns binary data or None if not found."""
@@ -221,7 +199,7 @@ class ApiLive:
     def screen_buttons_multiple(self, machines: List[str]) -> Dict[str, List[ScreenButton]]:
         """Fetch screen buttons for multiple machines."""
         data = self._fetch("screenButtons", {"m": machines})
-        return {machine: [ScreenButton(**btn) for btn in buttons] for machine, buttons in data.items()}
+        return {machine: [from_dict(ScreenButton, btn) for btn in buttons] for machine, buttons in data.items()}
 
     def screen_buttons(self, machine: str) -> List[ScreenButton]:
         """Fetch screen buttons for a single machine."""
@@ -241,7 +219,7 @@ class ApiLive:
         for machine, groups in data.items():
             result[machine] = []
             for group_data in groups:
-                programs = [Program(**prog) for prog in group_data.get('programs', [])]
+                programs = [from_dict(Program, prog) for prog in group_data.get('programs', [])]
                 result[machine].append(ProgramGroup(group=group_data['group'], programs=programs))
         return result
 
@@ -253,7 +231,7 @@ class ApiLive:
     def jobs_multiple(self, machines: List[str]) -> Dict[str, List[ScheduledJob]]:
         """Fetch scheduled jobs for multiple machines."""
         data = self._fetch("jobs", {"m": machines})
-        return {machine: [ScheduledJob(**job) for job in jobs] for machine, jobs in data.items()}
+        return {machine: [from_dict(ScheduledJob, job) for job in jobs] for machine, jobs in data.items()}
 
     def jobs(self, machine: str) -> List[ScheduledJob]:
         """Fetch scheduled jobs for a single machine."""
@@ -275,7 +253,7 @@ class ApiLive:
         result = {}
         for machine, profile_data in data.items():
             if profile_data:
-                sample_steps = [SampleStep(**step) for step in profile_data.get('sampleSteps', [])]
+                sample_steps = [from_dict(SampleStep, step) for step in profile_data.get('sampleSteps', [])]
                 result[machine] = RunningProfile(
                     currentStep=profile_data['currentStep'],
                     changingStep=profile_data['changingStep'],

@@ -1,12 +1,12 @@
 from datetime import datetime
-from apiLive import ApiLive 
-from apiPe import ApiPe, history_to_csv
+from adaptive_api import ApiLive, ApiPe
+from adaptive_api.pe import history_to_csv
 
 if __name__ == "__main__":
     API_SERVER = "http://localhost"
     API_TOKEN = "123"
 
-    # client = ApiLive(API_SERVER, API_TOKEN)
+    client = ApiLive(API_SERVER, API_TOKEN)
     # print(client.dashboard_entries())
 
     # for m in client.machines():

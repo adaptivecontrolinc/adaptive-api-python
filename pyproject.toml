@@ -1,0 +1,16 @@
+[project]
+name = "adaptive-api-python"
+version = "0.1.0"
+description = "Python client for Adaptive Live and PE APIs"
+authors = [
+    {name = "Adaptive Control Inc."}
+]
+dependencies = [
+    "requests>=2.31.0",
+    "dacite>=1.8.1",
+]
+requires-python = ">=3.8"
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
