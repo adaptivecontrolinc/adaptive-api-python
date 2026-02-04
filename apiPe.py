@@ -337,16 +337,16 @@ def fix_history(history: AdaptiveHistory) -> None:
                 value = prev + values[i]
                 prev = value
                 values[i] = value
-        # elif tag.type == 'boolean':
-        #     values1 = tag.values
-        #     values: bool[] = []
-            
-        #     if len(values) > 0:
-        #         prev = values[0]
-        #         for i in range(1, len(elapsed_indexes)):
-        #             prev = not prev
-        #             values[i] = prev
-
+        elif tag.type == 'boolean':            
+            values1 = tag.values
+            if len(values1) > 0:
+                last_value = values1[0]  # a single initial value
+                # Expand to full length by alternating values
+                expanded_values = [last_value]
+                for i in range(1, len(tag.elapsedIndexes)):
+                    last_value = not last_value
+                    expanded_values.append(last_value)
+                tag.values = expanded_values
 
     def reschedule_groups(history) -> List[RescheduleGroup]:
         """Fetch reschedule groups."""
@@ -502,16 +502,16 @@ def fix_history(history: AdaptiveHistory) -> None:
         """Delete programs."""
         return history._post('deletePrograms', body=json.dumps(ids))
     
-def history_to_csv(history: AdaptiveHistory) -> Any:
+def history_to_csv(history: AdaptiveHistory) -> str:
     lines = []
     lines.append(','.join(['ElapsedTime', 'Time'] + [tag.name for tag in history.tags]))
-   # 2. Setup state trackers
+
     num_tags = len(history.tags)
     last_values = [None] * num_tags
-    # Track which position we are at in each tag's individual 'elapsedIndexes' list
+
     tag_pointers = [0] * num_tags 
     
-    # 3. Iterate through every global elapsed time step
+    # Iterate through every global elapsed time step
     for i in range(len(history.elapsedTimes)):
         row = [
             str(history.elapsedTimes[i]),

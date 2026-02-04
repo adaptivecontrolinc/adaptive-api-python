@@ -18,7 +18,7 @@ if __name__ == "__main__":
     if history:
         csv = history_to_csv(history)
         save_path = f"{job_id}.csv"
-        with open(save_path, "w") as f:
+        with open(save_path, "w", encoding="utf-8-sig") as f:
             f.write(csv)
     
     # # Fetch program groups
